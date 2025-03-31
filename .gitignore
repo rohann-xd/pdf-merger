@@ -136,3 +136,5 @@ dist
 .pnp.*
 
 uploads/
+!public/
+/public/*.pdf

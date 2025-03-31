@@ -12,9 +12,9 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "templates/index.html"));
 });
 
-app.post("/merge", upload.array("pdfs", 2), function (req, res, next) {
+app.post("/merge", upload.array("pdfs", 2), async function (req, res, next) {
   console.log(req.files);
-  mergPdfs(
+  await mergPdfs(
     path.join(__dirname, req.files[0].path),
     path.join(__dirname, req.files[1].path)
   );
