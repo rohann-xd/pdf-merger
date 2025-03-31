@@ -14,11 +14,11 @@ app.get("/", (req, res) => {
 
 app.post("/merge", upload.array("pdfs", 2), async function (req, res, next) {
   console.log(req.files);
-  await mergPdfs(
+  let d = await mergPdfs(
     path.join(__dirname, req.files[0].path),
     path.join(__dirname, req.files[1].path)
   );
-  res.redirect("http://localhost:3000/static/merged.pdf");
+  res.redirect(`http://localhost:3000/static/${d}.pdf`);
 });
 
 app.listen(port, () => {
