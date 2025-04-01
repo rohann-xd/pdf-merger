@@ -9,8 +9,6 @@ require("dotenv").config();
 const app = express();
 const port = 3000;
 
-app.use(express.static(path.join(__dirname, "public")));
-
 const s3Client = new S3Client({
   region: process.env.AWS_REGION,
   credentials: {
@@ -18,6 +16,9 @@ const s3Client = new S3Client({
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 });
+
+app.set("view engine", "ejs");
+app.set("views", path.join(__dirname, "templates"));
 
 const upload = multer({
   dest: "uploads/",
@@ -30,15 +31,16 @@ const upload = multer({
 });
 
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "templates/index.html"));
+  res.render("index", { errorMessage: null });
 });
 
 app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
   try {
     if (!req.files || req.files.length < 2) {
-      return res
-        .status(400)
-        .json({ error: "Please upload at least 2 PDF files." });
+      return res.render("index", {
+        errorMessage:
+          "You need to upload at least 2 valid PDF files, each with a size of 2MB or less.",
+      });
     }
 
     let validFiles = [];
@@ -57,12 +59,10 @@ app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
     }
 
     if (validFiles.length < 2) {
-      return res
-        .status(400)
-        .json({
-          error: "At least 2 valid PDF files (≤2MB) are required.",
-          skippedFiles,
-        });
+      return res.render("index", {
+        errorMessage:
+          "You need to upload at least 2 valid PDF files, each with a size of 2MB or less.",
+      });
     }
 
     const s3UploadPromises = validFiles.map(async (file) => {
@@ -90,8 +90,7 @@ app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
 
     const mergedFileUrl = `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
 
-    res.json({
-      message: "PDFs merged successfully!",
+    res.render("result", {
       mergedFileUrl,
       skippedFiles,
     });
