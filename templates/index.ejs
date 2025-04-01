@@ -27,6 +27,17 @@
           <%= errorMessage %>
         </div>
       <% } %>
+      
+      <% if (locals.skippedFiles && skippedFiles.length > 0) { %>
+        <div class="alert alert-warning">
+          <strong>Some files were skipped:</strong>
+          <ul>
+            <% skippedFiles.forEach(function(file) { %>
+              <li><%= file.name %> - <%= file.reason %></li>
+            <% }) %>
+          </ul>
+        </div>
+      <% } %>
 
       <form method="post" action="/merge" enctype="multipart/form-data">
         <div class="mb-3">

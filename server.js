@@ -22,12 +22,7 @@ app.set("views", path.join(__dirname, "templates"));
 
 const upload = multer({
   dest: "uploads/",
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype !== "application/pdf") {
-      return cb(new Error("Only PDF files are allowed!"));
-    }
-    cb(null, true);
-  },
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
 
 app.get("/", (req, res) => {
@@ -36,14 +31,9 @@ app.get("/", (req, res) => {
 
 app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
   try {
-    if (!req.files || req.files.length < 2) {
-      for (const file of req.files) {
-        await fs.unlink(file.path);
-      }
-
+    if (!req.files || req.files.length < 1) {
       return res.render("index", {
-        errorMessage:
-          "You need to upload at least 2 valid PDF files, each with a size of 2MB or less.",
+        errorMessage: "Please select files to upload.",
       });
     }
 
@@ -51,25 +41,42 @@ app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
     let skippedFiles = [];
 
     for (const file of req.files) {
-      if (file.size <= 2 * 1024 * 1024) {
-        validFiles.push(file);
+      if (file.mimetype === "application/pdf") {
+        if (file.size <= 2 * 1024 * 1024) {
+          validFiles.push(file);
+        } else {
+          skippedFiles.push({
+            name: file.originalname,
+            reason: `Too large: ${(file.size / (1024 * 1024)).toFixed(
+              2
+            )}MB (max 2MB)`,
+          });
+          await fs
+            .unlink(file.path)
+            .catch((e) => console.error(`Failed to delete ${file.path}:`, e));
+        }
       } else {
-        skippedFiles.push(file.originalname);
-        console.log(
-          `Skipping file: ${file.originalname} (Too large: ${file.size} bytes)`
-        );
-        await fs.unlink(file.path);
+        skippedFiles.push({
+          name: file.originalname,
+          reason: "Not a PDF file",
+        });
+        await fs
+          .unlink(file.path)
+          .catch((e) => console.error(`Failed to delete ${file.path}:`, e));
       }
     }
 
     if (validFiles.length < 2) {
       for (const file of validFiles) {
-        await fs.unlink(file.path);
+        await fs
+          .unlink(file.path)
+          .catch((e) => console.error(`Failed to delete ${file.path}:`, e));
       }
 
       return res.render("index", {
         errorMessage:
-          "You need to upload at least 2 valid PDF files, each with a size of 2MB or less.",
+          "You need at least 2 valid PDF files to merge, each with a size of 2MB or less.",
+        skippedFiles: skippedFiles,
       });
     }
 
@@ -88,29 +95,51 @@ app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
     });
 
     const s3Keys = await Promise.all(s3UploadPromises);
-    const localFilePaths = validFiles.map((file) =>
-      path.join(__dirname, file.path)
-    );
+    const localFilePaths = validFiles.map((file) => file.path);
 
     const { id, s3Key } = await mergPdfs(...localFilePaths);
 
-    await Promise.all(localFilePaths.map((file) => fs.unlink(file)));
+    await Promise.all(
+      localFilePaths.map((file) =>
+        fs
+          .unlink(file)
+          .catch((e) => console.error(`Failed to delete ${file}:`, e))
+      )
+    );
 
     const mergedFileUrl = `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
 
+    const formattedSkippedFiles = skippedFiles.map(
+      (item) => `${item.name} (${item.reason})`
+    );
+
     res.render("result", {
       mergedFileUrl,
-      skippedFiles,
+      skippedFiles: formattedSkippedFiles,
     });
   } catch (error) {
     console.error("Error during merge or S3 operations:", error);
 
-    for (const file of req.files) {
-      await fs.unlink(file.path);
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        await fs
+          .unlink(file.path)
+          .catch((e) => console.error(`Failed to delete ${file.path}:`, e));
+      }
     }
 
-    res.status(500).json({ error: "An error occurred while merging PDFs." });
+    res.status(500).render("index", {
+      errorMessage:
+        "An error occurred while processing your files. Please try again.",
+    });
   }
+});
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err);
+  res.status(500).render("index", {
+    errorMessage: "Something went wrong. Please try again later.",
+  });
 });
 
 app.listen(port, () => {
