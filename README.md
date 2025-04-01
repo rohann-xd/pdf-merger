@@ -1,3 +1,4 @@
+
 # 📄 **PDF Merger App**
 
 A simple web application that allows users to merge multiple PDF files into one. Users can upload multiple PDFs, merge them, and view the final document directly in the browser.
@@ -9,14 +10,16 @@ A simple web application that allows users to merge multiple PDF files into one.
 - Merged PDFs open directly in the browser.
 - Option to download the merged PDF if needed.
 - PDF format validation to ensure only PDF files are accepted.
+- Handle oversized files with error messages and show skipped files due to size issues.
 
 ---
 
 ## ⚙️ **Technologies Used**
 - **Node.js** with **Express** for the backend
 - **Multer** for handling file uploads
-- **PDFMerger** for merging PDF files
+- **AWS SDK** for uploading files to S3 storage
 - **JavaScript (ES6)** for modern syntax
+- **EJS** for templating and rendering HTML views
 
 ---
 
@@ -50,6 +53,7 @@ A simple web application that allows users to merge multiple PDF files into one.
 3. Click the merge button.
 4. The merged PDF will open directly in your browser.
 5. Use the browser’s download option if needed.
+6. In case of errors due to file size, a message will be displayed, and any files exceeding 2MB will be skipped.
 
 ---
 
@@ -61,7 +65,7 @@ pdf-merger-app/
 ├── server.js             # Main server file
 ├── pdfMerge.js           # PDF merging logic
 ├── package.json          # Project dependencies
-└── README.md             # This file
+└── README.txt            # This file
 ```
 
 ---
@@ -78,3 +82,6 @@ pdf-merger-app/
 Contributions are welcome!
 - Fork the repository
 - Create a feature branch (`git checkout -b feature-branch`)
+- Commit your changes (`git commit -m 'Add new feature'`)
+- Push to the branch (`git push origin feature-branch`)
+- Create a new Pull Request
