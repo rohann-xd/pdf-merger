@@ -37,6 +37,10 @@ app.get("/", (req, res) => {
 app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
   try {
     if (!req.files || req.files.length < 2) {
+      for (const file of req.files) {
+        await fs.unlink(file.path);
+      }
+
       return res.render("index", {
         errorMessage:
           "You need to upload at least 2 valid PDF files, each with a size of 2MB or less.",
@@ -59,6 +63,10 @@ app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
     }
 
     if (validFiles.length < 2) {
+      for (const file of validFiles) {
+        await fs.unlink(file.path);
+      }
+
       return res.render("index", {
         errorMessage:
           "You need to upload at least 2 valid PDF files, each with a size of 2MB or less.",
@@ -96,6 +104,11 @@ app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
     });
   } catch (error) {
     console.error("Error during merge or S3 operations:", error);
+
+    for (const file of req.files) {
+      await fs.unlink(file.path);
+    }
+
     res.status(500).json({ error: "An error occurred while merging PDFs." });
   }
 });
