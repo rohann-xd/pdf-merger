@@ -1,6 +1,24 @@
 const express = require("express");
-const app = express();
 const multer = require("multer");
+const path = require("path");
+const fs = require("fs").promises;
+const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
+const { mergPdfs } = require("./pdfMerge");
+require("dotenv").config();
+
+const app = express();
+const port = 3000;
+
+app.use(express.static(path.join(__dirname, "public")));
+
+const s3Client = new S3Client({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
+});
+
 const upload = multer({
   dest: "uploads/",
   fileFilter: (req, file, cb) => {
@@ -10,12 +28,6 @@ const upload = multer({
     cb(null, true);
   },
 });
-const path = require("path");
-const fs = require("fs").promises;
-const { mergPdfs } = require("./pdfMerge");
-const port = 3000;
-
-app.use("/static", express.static("public"));
 
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "templates/index.html"));
@@ -24,25 +36,71 @@ app.get("/", (req, res) => {
 app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
   try {
     if (!req.files || req.files.length < 2) {
-      return res.status(400).send("Please upload at least 2 PDF files.");
+      return res
+        .status(400)
+        .json({ error: "Please upload at least 2 PDF files." });
     }
 
-    const filePaths = req.files.map((file) => path.join(__dirname, file.path));
-    const mergedFileId = await mergPdfs(...filePaths);
+    let validFiles = [];
+    let skippedFiles = [];
 
-    await Promise.all(filePaths.map((file) => fs.unlink(file)));
+    for (const file of req.files) {
+      if (file.size <= 2 * 1024 * 1024) {
+        validFiles.push(file);
+      } else {
+        skippedFiles.push(file.originalname);
+        console.log(
+          `Skipping file: ${file.originalname} (Too large: ${file.size} bytes)`
+        );
+        await fs.unlink(file.path);
+      }
+    }
 
-    res.setHeader(
-      "Content-Disposition",
-      `inline; filename="${mergedFileId}.pdf"`
+    if (validFiles.length < 2) {
+      return res
+        .status(400)
+        .json({
+          error: "At least 2 valid PDF files (≤2MB) are required.",
+          skippedFiles,
+        });
+    }
+
+    const s3UploadPromises = validFiles.map(async (file) => {
+      const fileContent = await fs.readFile(file.path);
+      const s3Key = `uploads/${file.filename}.pdf`;
+      await s3Client.send(
+        new PutObjectCommand({
+          Bucket: process.env.S3_BUCKET,
+          Key: s3Key,
+          Body: fileContent,
+          ContentType: "application/pdf",
+        })
+      );
+      return s3Key;
+    });
+
+    const s3Keys = await Promise.all(s3UploadPromises);
+    const localFilePaths = validFiles.map((file) =>
+      path.join(__dirname, file.path)
     );
-    res.sendFile(path.join(__dirname, `public/${mergedFileId}.pdf`));
+
+    const { id, s3Key } = await mergPdfs(...localFilePaths);
+
+    await Promise.all(localFilePaths.map((file) => fs.unlink(file)));
+
+    const mergedFileUrl = `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
+
+    res.json({
+      message: "PDFs merged successfully!",
+      mergedFileUrl,
+      skippedFiles,
+    });
   } catch (error) {
-    console.error("Error during merge:", error);
-    res.status(500).send("An error occurred while merging PDFs.");
+    console.error("Error during merge or S3 operations:", error);
+    res.status(500).json({ error: "An error occurred while merging PDFs." });
   }
 });
 
 app.listen(port, () => {
-  console.log(`PDF merger app listening on port http://localhost:${port}`);
+  console.log(`PDF merger app listening on http://localhost:${port}`);
 });

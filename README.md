@@ -56,7 +56,6 @@ A simple web application that allows users to merge multiple PDF files into one.
 ## 🗂️ **Project Structure**
 ```
 pdf-merger-app/
-├── public/               # Folder for merged PDFs
 ├── templates/            # HTML templates
 ├── uploads/              # Temporary upload directory
 ├── server.js             # Main server file
