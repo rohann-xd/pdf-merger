@@ -7,7 +7,9 @@ const { mergPdfs } = require("./pdfMerge");
 require("dotenv").config();
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILES = 10;
 
 const s3Client = new S3Client({
   region: process.env.AWS_REGION,
@@ -20,10 +22,59 @@ const s3Client = new S3Client({
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "templates"));
 
+const ensureUploadsDir = async () => {
+  try {
+    await fs.mkdir("uploads", { recursive: true });
+    console.log("Uploads directory verified");
+  } catch (err) {
+    console.error("Error creating uploads directory:", err);
+  }
+};
+ensureUploadsDir();
+
 const upload = multer({
   dest: "uploads/",
   limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === "application/pdf") {
+      cb(null, true);
+    } else {
+      cb(null, true);
+    }
+  },
 });
+
+const safeDeleteFile = async (filePath) => {
+  try {
+    await fs.unlink(filePath);
+  } catch (error) {
+    console.error(`Failed to delete ${filePath}:`, error);
+  }
+};
+
+const uploadFileToS3 = async (filePath, originalName) => {
+  try {
+    const fileContent = await fs.readFile(filePath);
+    const s3Key = `uploads/${path.basename(filePath)}.pdf`;
+
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: process.env.S3_BUCKET,
+        Key: s3Key,
+        Body: fileContent,
+        ContentType: "application/pdf",
+        Metadata: {
+          originalname: encodeURIComponent(originalName),
+        },
+      })
+    );
+
+    return s3Key;
+  } catch (error) {
+    console.error(`Error uploading ${filePath} to S3:`, error);
+    throw new Error(`Failed to upload file to S3: ${error.message}`);
+  }
+};
 
 app.get("/", (req, res) => {
   res.render("index", { errorMessage: null });
@@ -33,20 +84,21 @@ app.get("/merge", (req, res) => {
   res.render("merge");
 });
 
-app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
+app.post("/merge", upload.array("pdfs", MAX_FILES), async function (req, res) {
+  const uploadedFiles = req.files || [];
+  const validFiles = [];
+  const skippedFiles = [];
+
   try {
-    if (!req.files || req.files.length < 1) {
+    if (uploadedFiles.length < 1) {
       return res.render("index", {
         errorMessage: "Please select files to upload.",
       });
     }
 
-    let validFiles = [];
-    let skippedFiles = [];
-
-    for (const file of req.files) {
+    for (const file of uploadedFiles) {
       if (file.mimetype === "application/pdf") {
-        if (file.size <= 5 * 1024 * 1024) {
+        if (file.size <= MAX_FILE_SIZE) {
           validFiles.push(file);
         } else {
           skippedFiles.push({
@@ -55,61 +107,39 @@ app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
               2
             )}MB (max 5MB)`,
           });
-          await fs
-            .unlink(file.path)
-            .catch((e) => console.error(`Failed to delete ${file.path}:`, e));
+          await safeDeleteFile(file.path);
         }
       } else {
         skippedFiles.push({
           name: file.originalname,
           reason: "Not a PDF file",
         });
-        await fs
-          .unlink(file.path)
-          .catch((e) => console.error(`Failed to delete ${file.path}:`, e));
+        await safeDeleteFile(file.path);
       }
     }
 
     if (validFiles.length < 2) {
       for (const file of validFiles) {
-        await fs
-          .unlink(file.path)
-          .catch((e) => console.error(`Failed to delete ${file.path}:`, e));
+        await safeDeleteFile(file.path);
       }
 
       return res.render("index", {
         errorMessage:
-          "You need at least 2 valid PDF files to merge, each with a size of 2MB or less.",
+          "You need at least 2 valid PDF files to merge, each with a size of 5MB or less.",
         skippedFiles: skippedFiles,
       });
     }
 
-    const s3UploadPromises = validFiles.map(async (file) => {
-      const fileContent = await fs.readFile(file.path);
-      const s3Key = `uploads/${file.filename}.pdf`;
-      await s3Client.send(
-        new PutObjectCommand({
-          Bucket: process.env.S3_BUCKET,
-          Key: s3Key,
-          Body: fileContent,
-          ContentType: "application/pdf",
-        })
-      );
-      return s3Key;
-    });
+    const s3UploadPromises = validFiles.map((file) =>
+      uploadFileToS3(file.path, file.originalname)
+    );
+    await Promise.all(s3UploadPromises);
 
-    const s3Keys = await Promise.all(s3UploadPromises);
     const localFilePaths = validFiles.map((file) => file.path);
 
     const { id, s3Key } = await mergPdfs(...localFilePaths);
 
-    await Promise.all(
-      localFilePaths.map((file) =>
-        fs
-          .unlink(file)
-          .catch((e) => console.error(`Failed to delete ${file}:`, e))
-      )
-    );
+    await Promise.all(localFilePaths.map(safeDeleteFile));
 
     const mergedFileUrl = `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
 
@@ -124,17 +154,14 @@ app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
   } catch (error) {
     console.error("Error during merge or S3 operations:", error);
 
-    if (req.files && req.files.length > 0) {
-      for (const file of req.files) {
-        await fs
-          .unlink(file.path)
-          .catch((e) => console.error(`Failed to delete ${file.path}:`, e));
-      }
+    if (uploadedFiles.length > 0) {
+      await Promise.all(uploadedFiles.map((file) => safeDeleteFile(file.path)));
     }
 
     res.status(500).render("index", {
       errorMessage:
         "An error occurred while processing your files. Please try again.",
+      skippedFiles: skippedFiles.length > 0 ? skippedFiles : undefined,
     });
   }
 });
@@ -153,4 +180,7 @@ app.use((req, res) => {
 
 app.listen(port, () => {
   console.log(`PDF merger app listening on http://localhost:${port}`);
+  console.log(
+    `Using S3 bucket: ${process.env.S3_BUCKET} in region: ${process.env.AWS_REGION}`
+  );
 });
