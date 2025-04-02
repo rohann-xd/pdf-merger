@@ -22,7 +22,7 @@ app.set("views", path.join(__dirname, "templates"));
 
 const upload = multer({
   dest: "uploads/",
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 20 * 1024 * 1024 },
 });
 
 app.get("/", (req, res) => {
@@ -46,14 +46,14 @@ app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
 
     for (const file of req.files) {
       if (file.mimetype === "application/pdf") {
-        if (file.size <= 2 * 1024 * 1024) {
+        if (file.size <= 5 * 1024 * 1024) {
           validFiles.push(file);
         } else {
           skippedFiles.push({
             name: file.originalname,
             reason: `Too large: ${(file.size / (1024 * 1024)).toFixed(
               2
-            )}MB (max 2MB)`,
+            )}MB (max 5MB)`,
           });
           await fs
             .unlink(file.path)
