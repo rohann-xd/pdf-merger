@@ -29,6 +29,10 @@ app.get("/", (req, res) => {
   res.render("index", { errorMessage: null });
 });
 
+app.get("/merge", (req, res) => {
+  res.render("merge");
+});
+
 app.post("/merge", upload.array("pdfs", 10), async function (req, res) {
   try {
     if (!req.files || req.files.length < 1) {
@@ -140,6 +144,11 @@ app.use((err, req, res, next) => {
   res.status(500).render("index", {
     errorMessage: "Something went wrong. Please try again later.",
   });
+});
+
+// 404 Page Not Found Handler
+app.use((req, res) => {
+  res.status(404).render("404");
 });
 
 app.listen(port, () => {
