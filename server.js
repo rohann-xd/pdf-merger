@@ -76,6 +76,8 @@ const uploadFileToS3 = async (filePath, originalName) => {
   }
 };
 
+app.use(express.urlencoded({ extended: true }));
+
 app.get("/", (req, res) => {
   res.render("index", { errorMessage: null });
 });
@@ -83,6 +85,80 @@ app.get("/", (req, res) => {
 app.get("/merge", (req, res) => {
   res.render("merge");
 });
+
+// New route for arranging PDFs
+app.post(
+  "/arrange",
+  upload.array("pdfs", MAX_FILES),
+  async function (req, res) {
+    try {
+      if (!req.files || req.files.length < 1) {
+        return res.render("index", {
+          errorMessage: "Please select files to upload.",
+        });
+      }
+
+      let validFiles = [];
+      let skippedFiles = [];
+
+      for (const file of req.files) {
+        if (file.mimetype === "application/pdf") {
+          if (file.size <= MAX_FILE_SIZE) {
+            validFiles.push({
+              path: file.path,
+              name: file.originalname,
+              size: (file.size / (1024 * 1024)).toFixed(2) + " MB",
+            });
+          } else {
+            skippedFiles.push({
+              name: file.originalname,
+              reason: `Too large: ${(file.size / (1024 * 1024)).toFixed(
+                2
+              )}MB (max 5MB)`,
+            });
+            await safeDeleteFile(file.path);
+          }
+        } else {
+          skippedFiles.push({
+            name: file.originalname,
+            reason: "Not a PDF file",
+          });
+          await safeDeleteFile(file.path);
+        }
+      }
+
+      if (validFiles.length < 2) {
+        for (const file of validFiles) {
+          await safeDeleteFile(file.path);
+        }
+
+        return res.render("index", {
+          errorMessage:
+            "You need at least 2 valid PDF files to merge, each with a size of 5MB or less.",
+          skippedFiles: skippedFiles,
+        });
+      }
+
+      res.render("arrange", {
+        files: validFiles,
+        skippedFiles: skippedFiles,
+      });
+    } catch (error) {
+      console.error("Error processing files:", error);
+
+      if (req.files && req.files.length > 0) {
+        for (const file of req.files) {
+          await safeDeleteFile(file.path);
+        }
+      }
+
+      res.status(500).render("index", {
+        errorMessage:
+          "An error occurred while processing your files. Please try again.",
+      });
+    }
+  }
+);
 
 app.post("/merge", upload.array("pdfs", MAX_FILES), async function (req, res) {
   const uploadedFiles = req.files || [];
@@ -162,6 +238,60 @@ app.post("/merge", upload.array("pdfs", MAX_FILES), async function (req, res) {
       errorMessage:
         "An error occurred while processing your files. Please try again.",
       skippedFiles: skippedFiles.length > 0 ? skippedFiles : undefined,
+    });
+  }
+});
+
+// New route for processing arranged PDFs
+app.post("/process-merge", async function (req, res) {
+  try {
+    const filePaths = req.body.filePaths.split(",");
+
+    if (!filePaths || filePaths.length < 2) {
+      return res.render("index", {
+        errorMessage: "You need at least 2 valid PDF files to merge.",
+      });
+    }
+
+    for (const filePath of filePaths) {
+      try {
+        await fs.access(filePath);
+      } catch (error) {
+        return res.render("index", {
+          errorMessage:
+            "Some files are no longer available. Please upload again.",
+        });
+      }
+    }
+
+    // Upload files to S3 (they're already on disk)
+    const s3UploadPromises = filePaths.map(async (filePath) => {
+      const filename = path.basename(filePath);
+      return uploadFileToS3(filePath, filename);
+    });
+    await Promise.all(s3UploadPromises);
+
+    // Merge PDFs and upload to S3
+    const { id, s3Key } = await mergPdfs(...filePaths);
+
+    // Clean up local files
+    await Promise.all(filePaths.map(safeDeleteFile));
+
+    const mergedFileUrl = `https://${process.env.S3_BUCKET}.s3.${process.env.AWS_REGION}.amazonaws.com/${s3Key}`;
+
+    const skippedFiles = req.body.skippedFiles
+      ? req.body.skippedFiles.split(",")
+      : [];
+
+    res.render("result", {
+      mergedFileUrl,
+      skippedFiles: skippedFiles,
+    });
+  } catch (error) {
+    console.error("Error during merge operation:", error);
+    res.status(500).render("index", {
+      errorMessage:
+        "An error occurred while merging your files. Please try again.",
     });
   }
 });

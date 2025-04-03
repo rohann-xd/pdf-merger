@@ -12,7 +12,6 @@
     />
   </head>
   <body>
-
     <nav class="navbar navbar-expand-lg bg-body-tertiary" data-bs-theme="dark">
       <div class="container-fluid">
         <a class="navbar-brand" href="/">PDF Merger</a>
@@ -21,27 +20,25 @@
 
     <div class="container my-3">
       <h2 class="my-2">PDFx - Your fav pdf merger</h2>
-      
+
       <% if (errorMessage) { %>
-        <div class="alert alert-danger">
-          <%= errorMessage %>
-        </div>
-      <% } %>
-      
-      <% if (locals.skippedFiles && skippedFiles.length > 0) { %>
-        <div class="alert alert-warning">
-          <strong>Some files were skipped:</strong>
-          <ul>
-            <% skippedFiles.forEach(function(file) { %>
-              <li><%= file.name %> - <%= file.reason %></li>
-            <% }) %>
-          </ul>
-        </div>
+      <div class="alert alert-danger"><%= errorMessage %></div>
+      <% } %> <% if (locals.skippedFiles && skippedFiles.length > 0) { %>
+      <div class="alert alert-warning">
+        <strong>Some files were skipped:</strong>
+        <ul>
+          <% skippedFiles.forEach(function(file) { %>
+          <li><%= file.name %> - <%= file.reason %></li>
+          <% }) %>
+        </ul>
+      </div>
       <% } %>
 
-      <form method="post" action="/merge" enctype="multipart/form-data">
+      <form method="post" action="/arrange" enctype="multipart/form-data">
         <div class="mb-3">
-          <label for="formFileMultiple" class="form-label my-3">Select the pdf files :</label>
+          <label for="formFileMultiple" class="form-label my-3"
+            >Select the pdf files :</label
+          >
           <input
             name="pdfs"
             class="form-control"
@@ -50,7 +47,7 @@
             multiple
             accept=".pdf"
           />
-          <input class="btn btn-primary my-4" type="submit" value="Submit">
+          <input class="btn btn-primary my-4" type="submit" value="Submit" />
         </div>
       </form>
     </div>

@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Arrange PDFs</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        line-height: 1.6;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      h1 {
+        text-align: center;
+        margin-bottom: 30px;
+      }
+      .instructions {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+      }
+      .file-list {
+        list-style-type: none;
+        padding: 0;
+        margin-bottom: 30px;
+      }
+      .file-item {
+        display: flex;
+        align-items: center;
+        padding: 10px;
+        margin-bottom: 5px;
+        background-color: #f1f1f1;
+        border-radius: 5px;
+        cursor: move;
+      }
+      .file-name {
+        flex-grow: 1;
+      }
+      .file-size {
+        color: #666;
+        margin-right: 10px;
+      }
+      .handle {
+        margin-right: 15px;
+        cursor: grab;
+        color: #999;
+      }
+      .buttons {
+        text-align: center;
+        margin-top: 20px;
+      }
+      button {
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      button:hover {
+        background-color: #45a049;
+      }
+      .skipped {
+        margin-top: 30px;
+      }
+      .skipped h3 {
+        color: #dc3545;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Arrange Your PDFs</h1>
+
+    <div class="instructions">
+      <p>
+        Drag and drop the files below to rearrange them in the order you want
+        them to be merged. The PDFs will be combined in the order shown from top
+        to bottom.
+      </p>
+    </div>
+
+    <form id="mergeForm" action="/process-merge" method="POST">
+      <ul id="sortable-files" class="file-list">
+        <% files.forEach(function(file, index) { %>
+        <li class="file-item" data-path="<%= file.path %>">
+          <div class="handle">&#9776;</div>
+          <div class="file-name"><%= file.name %></div>
+          <div class="file-size"><%= file.size %></div>
+        </li>
+        <% }); %>
+      </ul>
+
+      <input type="hidden" id="filePaths" name="filePaths" value="" />
+      <input
+        type="hidden"
+        id="skippedFiles"
+        name="skippedFiles"
+        value="<%= skippedFiles.map(file => file.name + ' (' + file.reason + ')').join(',') %>"
+      />
+
+      <div class="buttons">
+        <button type="submit">Merge PDFs</button>
+      </div>
+    </form>
+
+    <% if (skippedFiles && skippedFiles.length > 0) { %>
+    <div class="skipped">
+      <h3>Skipped Files</h3>
+      <ul>
+        <% skippedFiles.forEach(function(file) { %>
+        <li><%= file.name %> (<%= file.reason %>)</li>
+        <% }); %>
+      </ul>
+    </div>
+    <% } %>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        // Initialize sortable
+        const sortableList = document.getElementById("sortable-files");
+        new Sortable(sortableList, {
+          animation: 150,
+          handle: ".handle",
+          ghostClass: "sortable-ghost",
+        });
+
+        // Update hidden input with file paths on form submit
+        document
+          .getElementById("mergeForm")
+          .addEventListener("submit", function (e) {
+            const fileItems = document.querySelectorAll(".file-item");
+            const filePaths = Array.from(fileItems).map(
+              (item) => item.dataset.path
+            );
+            document.getElementById("filePaths").value = filePaths.join(",");
+          });
+      });
+    </script>
+  </body>
+</html>
